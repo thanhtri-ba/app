@@ -5,6 +5,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../core/theme.dart';
 import '../services/thumb_cache.dart';
+import 'motion.dart';
 
 const Map<String, Color> labelColors = {
   'red': Color(0xFFFF453A),
@@ -40,8 +41,9 @@ class AppCard extends StatelessWidget {
         border: Border.all(color: pal.line),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(pal.dark ? 0.0 : 0.05),
-            blurRadius: 18,
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 24,
+            spreadRadius: -12,
             offset: const Offset(0, 8),
           ),
         ],
@@ -49,21 +51,20 @@ class AppCard extends StatelessWidget {
       child: child,
     );
     if (onTap == null) return box;
-    return GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: box);
+    return Pressable(onTap: onTap, scale: 0.975, haptic: true, child: box);
   }
 }
 
 class HeroCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
-  const HeroCard({super.key, required this.child, this.padding = const EdgeInsets.all(16)});
+  const HeroCard({super.key, required this.child, this.padding = const EdgeInsets.all(22)});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: padding,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(22),
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -72,13 +73,41 @@ class HeroCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.accentDeep.withOpacity(0.35),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
+            color: const Color(0x990057C2),
+            blurRadius: 36,
+            spreadRadius: -14,
+            offset: Offset(0, 18),
           ),
         ],
       ),
-      child: DefaultTextStyle.merge(style: const TextStyle(color: Colors.white), child: child),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -40,
+              top: -50,
+              child: IgnorePointer(
+                child: Container(
+                  width: 170,
+                  height: 170,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [Color(0x59FFFFFF), Color(0x00FFFFFF)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: padding,
+              child: DefaultTextStyle.merge(
+                  style: const TextStyle(color: Colors.white), child: child),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -112,8 +141,11 @@ class SegControl extends StatelessWidget {
                   height: 34,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: i == index ? (pal.dark ? const Color(0xFF3A3A3C) : pal.bg) : Colors.transparent,
+                    color: i == index ? pal.segOn : Colors.transparent,
                     borderRadius: BorderRadius.circular(9),
+                    boxShadow: i == index
+                        ? const [BoxShadow(color: Color(0x33000000), blurRadius: 4, offset: Offset(0, 1))]
+                        : null,
                   ),
                   child: Text(
                     labels[i],
@@ -152,21 +184,42 @@ class PillButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = context.pal;
     final enabled = onTap != null;
-    final bg = !filled
-        ? pal.card
-        : (danger ? AppColors.danger : AppColors.accent);
     final fg = filled ? Colors.white : pal.accentText;
-    return Opacity(
+    final List<Color>? grad = !filled
+        ? null
+        : (danger
+            ? const [Color(0xFFEE2A3D), Color(0xFFC4001A)]
+            : const [Color(0xFF2A86F5), Color(0xFF0062CF)]);
+    final shadow = !filled
+        ? null
+        : [
+            BoxShadow(
+              color: (danger ? const Color(0xA6D70015) : const Color(0xB30062CF)),
+              blurRadius: 22,
+              spreadRadius: -8,
+              offset: const Offset(0, 10),
+            ),
+          ];
+    return AnimatedOpacity(
       opacity: enabled ? 1 : 0.45,
-      child: GestureDetector(
+      duration: const Duration(milliseconds: 200),
+      child: Pressable(
         onTap: onTap,
+        scale: 0.98,
+        haptic: true,
         child: Container(
-          height: 50,
+          height: 52,
+          width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 18),
           decoration: BoxDecoration(
-            color: bg,
+            color: filled ? null : pal.card,
+            gradient: grad == null
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: grad),
             borderRadius: BorderRadius.circular(14),
             border: filled ? null : Border.all(color: pal.line),
+            boxShadow: shadow,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -178,7 +231,7 @@ class PillButton extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: fg, fontSize: 16, fontWeight: FontWeight.w700),
+                  style: TextStyle(color: fg, fontSize: 17, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -230,9 +283,17 @@ class _PhotoThumbState extends State<PhotoThumb> {
       future: _f,
       builder: (context, snap) {
         final d = snap.data;
-        if (d == null) return Container(color: pal.chip);
-        return Image.memory(d, fit: widget.fit, gaplessPlayback: true,
-            width: double.infinity, height: double.infinity);
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: d == null
+              ? Container(key: const ValueKey('ph'), color: pal.chip)
+              : Image.memory(d,
+                  key: const ValueKey('img'),
+                  fit: widget.fit,
+                  gaplessPlayback: true,
+                  width: double.infinity,
+                  height: double.infinity),
+        );
       },
     );
   }

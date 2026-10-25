@@ -11,6 +11,8 @@ class LibraryProvider extends ChangeNotifier {
   LibState state = LibState.unknown;
   List<AssetEntity> assets = []; // newest first (photos + videos)
   List<AssetEntity> screenshots = [];
+  List<AssetEntity> chatMedia = [];
+  List<List<AssetEntity>> dupVideos = [];
   Map<String, List<AssetEntity>> byDay = {};
   int loaded = 0;
   int total = 0;
@@ -70,7 +72,9 @@ class LibraryProvider extends ChangeNotifier {
     _index();
     state = LibState.ready;
     notifyListeners();
+    _findDupVideos();
     await loadScreenshots();
+    await loadChatMedia();
   }
 
   void _index() {
@@ -104,6 +108,44 @@ class LibraryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Videos with the same duration and dimensions are probably copies.
+  void _findDupVideos() {
+    final m = <String, List<AssetEntity>>{};
+    for (final a in assets) {
+      if (a.type != AssetType.video || a.duration <= 0) continue;
+      m.putIfAbsent('${a.duration}_${a.width}x${a.height}', () => <AssetEntity>[]).add(a);
+    }
+    dupVideos = m.values.where((g) => g.length >= 2).toList();
+  }
+
+  static const List<String> _chatApps = [
+    'whatsapp', 'zalo', 'telegram', 'messenger', 'viber', 'wechat', 'signal', 'kakao', 'line', 'snapchat',
+  ];
+
+  /// Media received through messaging apps, found by album name.
+  Future<void> loadChatMedia() async {
+    try {
+      final ps = await PhotoManager.getAssetPathList(type: RequestType.common);
+      final seen = <String>{};
+      final out = <AssetEntity>[];
+      for (final p in ps) {
+        final n = p.name.toLowerCase();
+        if (!_chatApps.any((k) => n.contains(k))) continue;
+        final c = await p.assetCountAsync;
+        if (c == 0) continue;
+        final list = await p.getAssetListRange(start: 0, end: c > 3000 ? 3000 : c);
+        for (final a in list) {
+          if (seen.add(a.id)) out.add(a);
+        }
+      }
+      out.sort((a, b) => b.createDateTime.compareTo(a.createDateTime));
+      chatMedia = out;
+    } catch (_) {
+      chatMedia = [];
+    }
+    notifyListeners();
+  }
+
   /// Rough size estimate: exact file length for videos, pixel-based guess for photos.
   Future<int> estimateBytes(AssetEntity a) async {
     if (a.type == AssetType.video) {
@@ -133,6 +175,11 @@ class LibraryProvider extends ChangeNotifier {
     if (set.isNotEmpty) {
       assets.removeWhere((a) => set.contains(a.id));
       screenshots.removeWhere((a) => set.contains(a.id));
+      chatMedia.removeWhere((a) => set.contains(a.id));
+      for (final g in dupVideos) {
+        g.removeWhere((a) => set.contains(a.id));
+      }
+      dupVideos = dupVideos.where((g) => g.length >= 2).toList();
       _index();
       notifyListeners();
     }

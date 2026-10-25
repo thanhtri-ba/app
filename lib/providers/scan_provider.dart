@@ -3,7 +3,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../scanner/analyzer.dart';
+import '../scanner/sig_cache.dart';
+import '../services/ocr_service.dart';
 import 'library_provider.dart';
 import 'settings_provider.dart';
 
@@ -20,6 +24,17 @@ class ScanProvider extends ChangeNotifier {
   bool _cancel = false;
   ScanResult? result;
 
+  /// Persistent signatures: later scans only analyse new or edited photos.
+  final SigCache cache = SigCache();
+  DateTime? lastScan;
+
+  // OCR refinement of the "Receipts & docs" list.
+  Set<String>? docsRefined;
+  bool ocrRunning = false;
+  int ocrDone = 0;
+  int ocrTotal = 0;
+  bool _ocrCancel = false;
+
   /// Ids marked for deletion in the Review tab.
   final Set<String> reviewMarked = <String>{};
 
@@ -31,6 +46,46 @@ class ScanProvider extends ChangeNotifier {
 
   List<Cluster> get clusters => result?.clusters ?? const <Cluster>[];
   List<BlurItem> get blurry => result?.blurry ?? const <BlurItem>[];
+  List<Cluster> get bursts => result?.bursts ?? const <Cluster>[];
+  List<AssetEntity> get docs => result?.docs ?? const <AssetEntity>[];
+
+  /// Docs list after optional OCR refinement.
+  List<AssetEntity> get docsShown {
+    final keep = docsRefined;
+    return keep == null ? docs : docs.where((a) => keep.contains(a.id)).toList();
+  }
+
+  Future<void> load() async {
+    final p = await SharedPreferences.getInstance();
+    final ms = p.getInt('lastScanMs');
+    if (ms != null) lastScan = DateTime.fromMillisecondsSinceEpoch(ms);
+    notifyListeners();
+  }
+
+  /// Rough bytes in duplicate groups that could be freed (all but the best shot of each).
+  int get estimatedDupBytes {
+    var sum = 0;
+    for (final c in clusters) {
+      for (var i = 0; i < c.items.length; i++) {
+        if (i != c.best) sum += (c.items[i].width * c.items[i].height * 0.35).round();
+      }
+    }
+    return sum;
+  }
+
+  /// Rough bytes that could be freed (same estimate used by the review screen).
+  int get estimatedFreeable {
+    var sum = 0;
+    for (final c in clusters) {
+      for (var i = 0; i < c.items.length; i++) {
+        if (i != c.best) sum += (c.items[i].width * c.items[i].height * 0.35).round();
+      }
+    }
+    for (final b in blurry) {
+      sum += (b.asset.width * b.asset.height * 0.35).round();
+    }
+    return sum;
+  }
 
   Future<void> scan(LibraryProvider lib, SettingsProvider s) async {
     if (scanning) return;
@@ -40,13 +95,16 @@ class ScanProvider extends ChangeNotifier {
     total = 0;
     reviewMarked.clear();
     toolMarked.clear();
+    docsRefined = null;
     notifyListeners();
+    await cache.load();
     final list = lib.assets.take(s.scanLimit).toList();
     try {
       result = await Analyzer.run(
         list,
         blurThreshold: s.blurThreshold,
         hashThreshold: s.hashThreshold,
+        cache: cache,
         cancelled: () => _cancel,
         onProgress: (d, t) {
           done = d;
@@ -54,10 +112,50 @@ class ScanProvider extends ChangeNotifier {
           notifyListeners();
         },
       );
+      if (!_cancel) {
+        cache.prune({for (final a in lib.assets) a.id});
+        lastScan = DateTime.now();
+        final p = await SharedPreferences.getInstance();
+        await p.setInt('lastScanMs', lastScan!.millisecondsSinceEpoch);
+      }
+      await cache.save();
     } catch (e) {
       debugPrint('scan failed: $e');
     }
     scanning = false;
+    notifyListeners();
+  }
+
+  // ---- OCR refinement ----
+  Future<void> refineDocs() async {
+    if (ocrRunning || docs.isEmpty) return;
+    ocrRunning = true;
+    _ocrCancel = false;
+    ocrDone = 0;
+    ocrTotal = docs.length;
+    notifyListeners();
+    try {
+      final keep = await OcrService.receiptIds(
+        docs,
+        onProgress: (d, t) {
+          ocrDone = d;
+          ocrTotal = t;
+          notifyListeners();
+        },
+        cancelled: () => _ocrCancel,
+      );
+      if (!_ocrCancel) docsRefined = keep;
+    } catch (e) {
+      debugPrint('ocr refine failed: $e');
+    }
+    ocrRunning = false;
+    notifyListeners();
+  }
+
+  void cancelOcr() => _ocrCancel = true;
+
+  void resetRefine() {
+    docsRefined = null;
     notifyListeners();
   }
 
@@ -149,6 +247,7 @@ class ScanProvider extends ChangeNotifier {
     if (ids.isEmpty) return;
     reviewMarked.removeAll(ids);
     toolMarked.removeAll(ids);
+    docsRefined?.removeAll(ids);
     final r = result;
     if (r != null) {
       final cl = <Cluster>[];
@@ -157,7 +256,13 @@ class ScanProvider extends ChangeNotifier {
         if (n != null) cl.add(n);
       }
       final bl = r.blurry.where((b) => !ids.contains(b.asset.id)).toList();
-      result = ScanResult(cl, bl, r.scanned);
+      final bu = <Cluster>[];
+      for (final c in r.bursts) {
+        final n = c.without(ids);
+        if (n != null && isBurst(n)) bu.add(n);
+      }
+      final dc = r.docs.where((a) => !ids.contains(a.id)).toList();
+      result = ScanResult(cl, bl, r.scanned, docs: dc, bursts: bu);
     }
     if (large != null) {
       large = large!.where((l) => !ids.contains(l.asset.id)).toList();

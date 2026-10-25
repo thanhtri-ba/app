@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +9,8 @@ class SettingsProvider extends ChangeNotifier {
   int scanLimit = 3000;
   int blurLevel = 1; // 0 low, 1 medium, 2 high sensitivity
   int simLevel = 1; // 0 strict, 1 normal, 2 loose
+  int remind = 0; // scan reminders: 0 off, 1 daily, 2 weekly
+  bool statusBar = false; // persistent status notification (Android)
 
   bool get isVi => lang == 'vi';
 
@@ -19,10 +23,13 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     themeMode = ThemeMode.values[(p.getInt('theme') ?? 0).clamp(0, 2)];
-    lang = p.getString('lang') ?? 'en';
+    lang = p.getString('lang') ??
+        (PlatformDispatcher.instance.locale.languageCode == 'vi' ? 'vi' : 'en');
     scanLimit = p.getInt('scanLimit') ?? 3000;
     blurLevel = (p.getInt('blurLevel') ?? 1).clamp(0, 2);
     simLevel = (p.getInt('simLevel') ?? 1).clamp(0, 2);
+    remind = (p.getInt('remind') ?? 0).clamp(0, 2);
+    statusBar = p.getBool('statusBar') ?? false;
     notifyListeners();
   }
 
@@ -33,6 +40,8 @@ class SettingsProvider extends ChangeNotifier {
     await p.setInt('scanLimit', scanLimit);
     await p.setInt('blurLevel', blurLevel);
     await p.setInt('simLevel', simLevel);
+    await p.setInt('remind', remind);
+    await p.setBool('statusBar', statusBar);
   }
 
   void setTheme(ThemeMode m) {
@@ -61,6 +70,18 @@ class SettingsProvider extends ChangeNotifier {
 
   void setSimLevel(int n) {
     simLevel = n;
+    notifyListeners();
+    _save();
+  }
+
+  void setRemind(int n) {
+    remind = n;
+    notifyListeners();
+    _save();
+  }
+
+  void setStatusBar(bool v) {
+    statusBar = v;
     notifyListeners();
     _save();
   }

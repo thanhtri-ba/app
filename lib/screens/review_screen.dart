@@ -10,6 +10,7 @@ import '../providers/settings_provider.dart';
 import '../scanner/analyzer.dart';
 import '../widgets/common.dart';
 import '../widgets/delete_flow.dart';
+import '../widgets/motion.dart';
 
 class ReviewScreen extends StatelessWidget {
   final VoidCallback onOpenCleanup;
@@ -33,24 +34,37 @@ class ReviewScreen extends StatelessWidget {
       body = _Results(scan: scan);
     }
 
+    final shots = scan.clusters.fold<int>(0, (a, c) => a + c.items.length);
     return SafeArea(
       bottom: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Expanded(
-                  child: Text(context.tr('Review', 'Duyệt nhanh'),
-                      style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: pal.text)),
-                ),
+                Expanded(child: PageTitle(context.tr('Review', 'Duyệt nhanh'))),
+                if (scan.result != null && !scan.scanning && scan.clusters.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: pal.card,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: pal.line),
+                    ),
+                    child: Text('${scan.reviewMarked.length} / $shots',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: pal.text)),
+                  ),
                 if (scan.result != null && !scan.scanning)
-                  IconButton(
-                    tooltip: context.tr('Scan again', 'Quét lại'),
-                    onPressed: () => scan.scan(lib, settings),
-                    icon: const Icon(Icons.refresh_rounded),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => scan.scan(lib, settings),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 8, bottom: 4),
+                      child: Icon(Icons.refresh_rounded, color: pal.sec),
+                    ),
                   ),
               ],
             ),
@@ -74,9 +88,11 @@ class _Intro extends StatelessWidget {
     final pal = context.pal;
     final n = lib.photoCount < settings.scanLimit ? lib.photoCount : settings.scanLimit;
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(top: 10, bottom: kTabBarSpace),
+      physics: const BouncingScrollPhysics(),
       children: [
-        HeroCard(
+        FadeSlideIn(
+          child: HeroCard(
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -91,8 +107,9 @@ class _Intro extends StatelessWidget {
                 style: const TextStyle(fontSize: 14, height: 1.4, color: Color(0xE6FFFFFF)),
               ),
               const SizedBox(height: 16),
-              GestureDetector(
+              Pressable(
                 onTap: () => scan.scan(lib, settings),
+                haptic: true,
                 child: Container(
                   height: 48,
                   alignment: Alignment.center,
@@ -106,16 +123,22 @@ class _Intro extends StatelessWidget {
               ),
             ],
           ),
-        ),
+        )),
         const SizedBox(height: 14),
-        AppCard(
+        FadeSlideIn(
+          index: 1,
+          child: AppCard(
           child: Text(
             context.tr(
-                'Scanning runs on this device. The newest ${settings.scanLimit} photos are analysed; change this in Settings.',
-                'Việc quét chạy ngay trên máy. ${settings.scanLimit} ảnh mới nhất được phân tích; có thể đổi trong Cài đặt.'),
+                settings.scanLimit >= 1000000
+                    ? 'Scanning runs on this device and covers your whole library. Later scans only analyse new photos.'
+                    : 'Scanning runs on this device. The newest ${settings.scanLimit} photos are analysed; change this in Settings.',
+                settings.scanLimit >= 1000000
+                    ? 'Việc quét chạy ngay trên máy và bao phủ cả thư viện. Các lần sau chỉ phân tích ảnh mới.'
+                    : 'Việc quét chạy ngay trên máy. ${settings.scanLimit} ảnh mới nhất được phân tích; có thể đổi trong Cài đặt.'),
             style: TextStyle(color: pal.sec, fontSize: 13, height: 1.4),
           ),
-        ),
+        )),
       ],
     );
   }
@@ -129,7 +152,9 @@ class _Scanning extends StatelessWidget {
   Widget build(BuildContext context) {
     final pal = context.pal;
     final p = scan.total == 0 ? 0.0 : scan.done / scan.total;
-    return Center(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: kTabBarSpace),
+      child: Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -139,10 +164,21 @@ class _Scanning extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                CircularProgressIndicator(value: p == 0 ? null : p, strokeWidth: 8),
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: p),
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                  builder: (_, v, __) => CircularProgressIndicator(
+                    value: p == 0 ? null : v,
+                    strokeWidth: 8,
+                    backgroundColor: pal.line,
+                  ),
+                ),
                 Center(
-                  child: Text('${(p * 100).round()}%',
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: pal.text)),
+                  child: Pulse(
+                    child: Text('${(p * 100).round()}%',
+                        style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: pal.text)),
+                  ),
                 ),
               ],
             ),
@@ -156,7 +192,7 @@ class _Scanning extends StatelessWidget {
           TextButton(onPressed: scan.cancelScan, child: Text(context.tr('Stop', 'Dừng'))),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -167,16 +203,24 @@ class _Empty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = context.pal;
-    return Center(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: kTabBarSpace),
+      child: Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 92,
-            height: 92,
-            decoration: BoxDecoration(
-                color: pal.ok.withOpacity(0.14), borderRadius: BorderRadius.circular(46)),
-            child: Icon(Icons.check_rounded, size: 46, color: pal.ok),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0.6, end: 1),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.elasticOut,
+            builder: (_, v, child) => Transform.scale(scale: v, child: child),
+            child: Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                  color: pal.ok.withOpacity(0.14), borderRadius: BorderRadius.circular(46)),
+              child: Icon(Icons.check_rounded, size: 46, color: pal.ok),
+            ),
           ),
           const SizedBox(height: 20),
           Text(context.tr('All caught up', 'Đã gọn gàng'),
@@ -188,7 +232,7 @@ class _Empty extends StatelessWidget {
           PillButton(label: context.tr('Scan again', 'Quét lại'), filled: false, onTap: onRescan),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -202,6 +246,7 @@ class _Results extends StatefulWidget {
 
 class _ResultsState extends State<_Results> {
   bool _busy = false;
+  int _src = 0; // 0 worst first, 1 this month, 2 all
 
   int _bytesFor(Cluster c, bool onlyMarked, Set<String> marked) {
     var sum = 0;
@@ -236,8 +281,60 @@ class _ResultsState extends State<_Results> {
     }
     final pct = potential == 0 ? 0.0 : (markedBytes / potential).clamp(0.0, 1.0);
 
+    // Source filter chips: keep original indices so scan.keepBest(index) stays valid.
+    final now = DateTime.now();
+    var order = <int>[for (var i = 0; i < cl.length; i++) i];
+    if (_src == 0) {
+      final free = {for (final i in order) i: _bytesFor(cl[i], false, marked)};
+      order.sort((a, b) => free[b]!.compareTo(free[a]!));
+    } else if (_src == 1) {
+      order = order
+          .where((i) =>
+              cl[i].items.first.createDateTime.year == now.year &&
+              cl[i].items.first.createDateTime.month == now.month)
+          .toList();
+    }
+    final chipLabels = [
+      context.tr('Worst first', 'Tệ nhất'),
+      context.tr('This month', 'Tháng này'),
+      context.tr('All media', 'Tất cả'),
+    ];
+    final pal = context.pal;
+
     return Column(
       children: [
+        SizedBox(
+          height: 34,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: chipLabels.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final on = i == _src;
+              return Pressable(
+                onTap: () => setState(() => _src = i),
+                scale: 0.94,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: on ? AppColors.accent : pal.card,
+                    borderRadius: BorderRadius.circular(17),
+                    border: Border.all(color: pal.line),
+                  ),
+                  child: Text(chipLabels[i],
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: on ? Colors.white : pal.text)),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
         HeroCard(
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
           child: Column(
@@ -256,14 +353,18 @@ class _ResultsState extends State<_Results> {
                               fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xD9FFFFFF)),
                         ),
                         const SizedBox(height: 2),
-                        Text('~${fmtBytes(markedBytes)}',
+                        CountUp(
+                            value: markedBytes,
+                            duration: const Duration(milliseconds: 450),
+                            format: (v) => '~${fmtBytes(v)}',
                             style: const TextStyle(
                                 fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
                       ],
                     ),
                   ),
-                  GestureDetector(
+                  Pressable(
                     onTap: scan.autoAll,
+                    haptic: true,
                     child: Container(
                       height: 40,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -280,11 +381,16 @@ class _ResultsState extends State<_Results> {
               const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(3),
-                child: LinearProgressIndicator(
-                  value: pct,
-                  minHeight: 5,
-                  backgroundColor: Colors.white24,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: pct),
+                  duration: const Duration(milliseconds: 450),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, v, __) => LinearProgressIndicator(
+                    value: v,
+                    minHeight: 5,
+                    backgroundColor: Colors.white24,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
                 ),
               ),
               const SizedBox(height: 6),
@@ -312,13 +418,14 @@ class _ResultsState extends State<_Results> {
         const SizedBox(height: 10),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 8),
-            itemCount: cl.length,
-            itemBuilder: (context, i) => _ClusterCard(index: i, cluster: cl[i], scan: scan),
+            padding: const EdgeInsets.only(top: 6, bottom: 8),
+            itemCount: order.length,
+            itemBuilder: (context, i) =>
+                _ClusterCard(index: order[i], cluster: cl[order[i]], scan: scan),
           ),
         ),
         Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 10),
+          padding: const EdgeInsets.only(top: 8, bottom: kTabBarSpace),
           child: SizedBox(
             width: double.infinity,
             child: PillButton(
@@ -371,7 +478,10 @@ class _ClusterCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Opacity(opacity: del ? 0.35 : 1, child: PhotoThumb(asset: a, size: big ? 500 : 300)),
+                AnimatedOpacity(
+                    opacity: del ? 0.35 : 1,
+                    duration: const Duration(milliseconds: 180),
+                    child: PhotoThumb(asset: a, size: big ? 500 : 300)),
                 Positioned(left: 5, top: 5, child: Tag('◎ ${c.sharp[idx].round()}')),
                 Positioned(
                   left: 5,

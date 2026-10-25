@@ -10,6 +10,7 @@ import '../providers/library_provider.dart';
 import '../providers/meta_provider.dart';
 import '../providers/scan_provider.dart';
 import '../providers/settings_provider.dart';
+import 'celebration.dart';
 
 /// Asks for confirmation, then moves the assets to the system trash.
 /// Returns the number of photos actually deleted.
@@ -17,6 +18,7 @@ Future<int> confirmAndDelete(
   BuildContext context, {
   required List<AssetEntity> assets,
   required String kind,
+  int? freedBytes,
 }) async {
   if (assets.isEmpty) return 0;
   final lib = context.read<LibraryProvider>();
@@ -26,7 +28,7 @@ Future<int> confirmAndDelete(
   final messenger = ScaffoldMessenger.of(context);
   final vi = context.read<SettingsProvider>().isVi;
 
-  final bytes = await lib.estimateBytesAll(assets);
+  final bytes = freedBytes ?? await lib.estimateBytesAll(assets);
   if (!context.mounted) return 0;
 
   final ok = await showDialog<bool>(
@@ -55,11 +57,16 @@ Future<int> confirmAndDelete(
   final freed = deleted.length == assets.length
       ? bytes
       : (bytes * deleted.length / assets.length).round();
-  await act.add(kind, deleted.length, freed);
-  messenger.showSnackBar(SnackBar(
-    content: Text(vi
-        ? 'Đã chuyển ${deleted.length} mục · ${fmtBytes(freed)}'
-        : 'Moved ${deleted.length} items · ${fmtBytes(freed)}'),
-  ));
+  final unlocked = await act.add(kind, deleted.length, freed);
+  if (context.mounted) {
+    await showCelebration(context,
+        count: deleted.length, bytes: freed, newBadges: unlocked);
+  } else {
+    messenger.showSnackBar(SnackBar(
+      content: Text(vi
+          ? 'Đã chuyển ${deleted.length} mục · ${fmtBytes(freed)}'
+          : 'Moved ${deleted.length} items · ${fmtBytes(freed)}'),
+    ));
+  }
   return deleted.length;
 }

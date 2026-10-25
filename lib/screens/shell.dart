@@ -1,10 +1,18 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../core/format.dart';
 import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../providers/library_provider.dart';
+import '../providers/scan_provider.dart';
+import '../providers/settings_provider.dart';
+import '../services/notification_service.dart';
 import '../widgets/common.dart';
+import '../widgets/motion.dart';
 import 'cleanup_screen.dart';
 import 'library_screen.dart';
 import 'review_screen.dart';
@@ -24,12 +32,49 @@ class _ShellState extends State<Shell> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<LibraryProvider>().init();
+    NotificationService.instance.scanRequests.addListener(_onScanRequest);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await context.read<LibraryProvider>().init();
+      if (!mounted) return;
+      _applyNotifications();
+      // App was launched from the notification's "Quick scan" action.
+      if (NotificationService.instance.scanRequests.value > 0) _onScanRequest();
     });
   }
 
-  void goTab(int i) => setState(() => _tab = i);
+  @override
+  void dispose() {
+    NotificationService.instance.scanRequests.removeListener(_onScanRequest);
+    super.dispose();
+  }
+
+  void _onScanRequest() {
+    if (!mounted) return;
+    final lib = context.read<LibraryProvider>();
+    if (lib.state != LibState.ready) return;
+    setState(() => _tab = 0);
+    context.read<ScanProvider>().scan(lib, context.read<SettingsProvider>());
+  }
+
+  /// Re-applies reminder + status-bar settings (called at start and when they change).
+  void _applyNotifications() {
+    final st = context.read<SettingsProvider>();
+    final svc = NotificationService.instance;
+    svc.setReminder(
+      st.remind,
+      title: st.isVi ? 'Đến lúc dọn ảnh' : 'Time for a photo cleanup',
+      body: st.isVi
+          ? 'Mở Photo Cleaner để tìm ảnh trùng và ảnh mờ.'
+          : 'Open Photo Cleaner to find duplicates and blurry shots.',
+    );
+    if (!st.statusBar) svc.hideStatus();
+  }
+
+  void goTab(int i) {
+    if (i == _tab) return;
+    HapticFeedback.selectionClick();
+    setState(() => _tab = i);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,24 +112,183 @@ class _ShellState extends State<Shell> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: _tab, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: goTab,
-        destinations: [
-          NavigationDestination(
-              icon: const Icon(Icons.grid_view_rounded), label: context.tr('Review', 'Duyệt')),
-          NavigationDestination(
-              icon: const Icon(Icons.auto_awesome), label: context.tr('Cleanup', 'Dọn dẹp')),
-          NavigationDestination(
-              icon: const Icon(Icons.photo_library_outlined), label: context.tr('Library', 'Thư viện')),
-          NavigationDestination(
-              icon: const Icon(Icons.pie_chart_outline), label: context.tr('Storage', 'Dung lượng')),
-          NavigationDestination(
-              icon: const Icon(Icons.settings_outlined), label: context.tr('Settings', 'Cài đặt')),
+      backgroundColor: pal.bg,
+      extendBody: true,
+      body: Stack(
+        children: [
+          GlowBackground(
+            child: Stack(
+              children: [
+                for (var i = 0; i < pages.length; i++)
+                  Positioned.fill(child: TabPage(active: i == _tab, child: pages[i])),
+              ],
+            ),
+          ),
+          const _StatusUpdater(),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 22,
+            child: _FloatingTabBar(index: _tab, onTap: goTab),
+          ),
         ],
       ),
     );
+  }
+}
+
+/// Floating glass pill tab bar (68px high, 34px radius) with a sliding highlight.
+class _FloatingTabBar extends StatelessWidget {
+  final int index;
+  final ValueChanged<int> onTap;
+  const _FloatingTabBar({required this.index, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = context.pal;
+    // (inactive icon, label, active icon)
+    final items = <(IconData, String, IconData)>[
+      (Icons.view_carousel_outlined, context.tr('Review', 'Duyệt'), Icons.view_carousel_rounded),
+      (Icons.auto_awesome_outlined, context.tr('Cleanup', 'Dọn dẹp'), Icons.auto_awesome),
+      (Icons.photo_outlined, context.tr('Library', 'Thư viện'), Icons.photo_rounded),
+      (Icons.pie_chart_outline_rounded, context.tr('Storage', 'Dung lượng'), Icons.pie_chart_rounded),
+      (Icons.settings_outlined, context.tr('Settings', 'Cài đặt'), Icons.settings_rounded),
+    ];
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(34),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          height: 68,
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: pal.bar,
+            borderRadius: BorderRadius.circular(34),
+            border: Border.all(color: pal.line),
+            boxShadow: const [
+              BoxShadow(color: Color(0x2E000000), blurRadius: 30, offset: Offset(0, 10)),
+            ],
+          ),
+          child: LayoutBuilder(
+            builder: (context, c) {
+              final w = c.maxWidth / items.length;
+              return Stack(
+                children: [
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOutBack,
+                    left: w * index,
+                    top: 0,
+                    bottom: 0,
+                    width: w,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: pal.pill,
+                        borderRadius: BorderRadius.circular(29),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      for (var i = 0; i < items.length; i++)
+                        Expanded(
+                          child: Semantics(
+                            button: true,
+                            selected: i == index,
+                            label: items[i].$2,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => onTap(i),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  AnimatedScale(
+                                    scale: i == index ? 1.14 : 1,
+                                    duration: const Duration(milliseconds: 320),
+                                    curve: Curves.easeOutBack,
+                                    child: Icon(i == index ? items[i].$3 : items[i].$1,
+                                        size: 24, color: i == index ? pal.accentText : pal.sec),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  AnimatedDefaultTextStyle(
+                                    duration: const Duration(milliseconds: 220),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: i == index ? FontWeight.w700 : FontWeight.w600,
+                                      color: i == index ? pal.accentText : pal.sec,
+                                    ),
+                                    child: Text(items[i].$2),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Keeps the always-visible status notification in sync with the latest scan.
+class _StatusUpdater extends StatefulWidget {
+  const _StatusUpdater();
+
+  @override
+  State<_StatusUpdater> createState() => _StatusUpdaterState();
+}
+
+class _StatusUpdaterState extends State<_StatusUpdater> {
+  String _last = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final on = context.select<SettingsProvider, bool>((s) => s.statusBar);
+    final vi = context.select<SettingsProvider, bool>((s) => s.isVi);
+    final groups = context.select<ScanProvider, int>((s) => s.clusters.length);
+    final blur = context.select<ScanProvider, int>((s) => s.blurry.length);
+    final scanned = context.select<ScanProvider, bool>((s) => s.result != null);
+    final freeable = context.select<ScanProvider, int>((s) {
+      var sum = 0;
+      for (final c in s.clusters) {
+        for (var i = 0; i < c.items.length; i++) {
+          if (i != c.best) sum += (c.items[i].width * c.items[i].height * 0.35).round();
+        }
+      }
+      for (final b in s.blurry) {
+        sum += (b.asset.width * b.asset.height * 0.35).round();
+      }
+      return sum;
+    });
+
+    final title = vi ? 'Photo Cleaner' : 'Photo Cleaner';
+    final body = !scanned
+        ? (vi ? 'Chưa quét. Chạm Quét nhanh để tìm ảnh thừa.' : 'Not scanned yet. Tap Quick scan to find clutter.')
+        : (vi
+            ? '$groups nhóm giống · $blur ảnh mờ · có thể giải phóng ~${fmtBytes(freeable)}'
+            : '$groups similar groups · $blur blurry · ~${fmtBytes(freeable)} can be freed');
+    final action = vi ? 'Quét nhanh' : 'Quick scan';
+    final key = '$on|$title|$body';
+    if (key != _last) {
+      _last = key;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final svc = NotificationService.instance;
+        if (on) {
+          svc.showStatus(title: title, body: body, actionLabel: action);
+        } else {
+          svc.hideStatus();
+        }
+      });
+    }
+    return const SizedBox.shrink();
   }
 }
 

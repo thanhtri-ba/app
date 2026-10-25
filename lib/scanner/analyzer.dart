@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:photo_manager/photo_manager.dart';
 
 import 'hash.dart';
+import 'sig_cache.dart';
 
 /// A group of similar / duplicate photos. [best] indexes into [items].
 class Cluster {
@@ -48,8 +49,37 @@ class ScanResult {
   final List<Cluster> clusters;
   final List<BlurItem> blurry;
   final int scanned;
-  const ScanResult(this.clusters, this.blurry, this.scanned);
+
+  /// Possible receipts / documents (bright, text-like pages). Heuristic only.
+  final List<AssetEntity> docs;
+
+  /// Clusters of 3+ shots taken within a few seconds of each other.
+  final List<Cluster> bursts;
+  const ScanResult(
+    this.clusters,
+    this.blurry,
+    this.scanned, {
+    this.docs = const <AssetEntity>[],
+    this.bursts = const <Cluster>[],
+  });
 }
+
+/// Bursts are clusters of at least [minShots] whose first and last shot are
+/// no more than [maxSpanMs] apart.
+bool isBurst(Cluster c, {int minShots = 3, int maxSpanMs = 6000}) {
+  if (c.items.length < minShots) return false;
+  var lo = c.items.first.createDateTime.millisecondsSinceEpoch;
+  var hi = lo;
+  for (final a in c.items) {
+    final t = a.createDateTime.millisecondsSinceEpoch;
+    if (t < lo) lo = t;
+    if (t > hi) hi = t;
+  }
+  return hi - lo <= maxSpanMs;
+}
+
+/// Looks like a page: mostly bright, with enough fine detail (text) to not be a blank wall.
+bool looksLikeDocument(ImageSig s) => s.bright >= 0.6 && s.sharp >= 150;
 
 class _UnionFind {
   final List<int> p;
@@ -109,40 +139,51 @@ List<List<int>> groupSimilar(
 }
 
 class Analyzer {
-  static final Map<String, ImageSig> _cache = {};
+  /// Photos analysed concurrently (the platform thumbnail call is the bottleneck).
+  static const int _batch = 4;
+
+  static Future<ImageSig?> _sigFor(AssetEntity a, SigCache? cache) async {
+    final mod = a.modifiedDateSecond ?? 0;
+    final hit = cache?.get(a.id, mod);
+    if (hit != null) return hit;
+    final Uint8List? bytes = await a.thumbnailDataWithSize(const ThumbnailSize(160, 160), quality: 70);
+    if (bytes == null) return null;
+    final sig = await signatureOf(bytes);
+    if (sig != null) cache?.put(a.id, mod, sig);
+    return sig;
+  }
 
   static Future<ScanResult> run(
     List<AssetEntity> source, {
     required double blurThreshold,
     required int hashThreshold,
+    SigCache? cache,
     void Function(int done, int total)? onProgress,
     bool Function()? cancelled,
   }) async {
     final images = source.where((a) => a.type == AssetType.image).toList();
+    final found = List<ImageSig?>.filled(images.length, null);
+    for (var start = 0; start < images.length; start += _batch) {
+      if (cancelled != null && cancelled()) break;
+      final end = start + _batch < images.length ? start + _batch : images.length;
+      await Future.wait([
+        for (var i = start; i < end; i++)
+          _sigFor(images[i], cache).then((s) => found[i] = s, onError: (_) => null),
+      ]);
+      if ((start ~/ _batch) % 4 == 0) onProgress?.call(end, images.length);
+      await Future<void>.delayed(Duration.zero);
+    }
+    onProgress?.call(images.length, images.length);
+
     final used = <AssetEntity>[];
     final sigs = <ImageSig>[];
     for (var i = 0; i < images.length; i++) {
-      if (cancelled != null && cancelled()) break;
-      final a = images[i];
-      var sig = _cache[a.id];
-      if (sig == null) {
-        final Uint8List? bytes =
-            await a.thumbnailDataWithSize(const ThumbnailSize(160, 160), quality: 70);
-        if (bytes != null) {
-          sig = await signatureOf(bytes);
-          if (sig != null) _cache[a.id] = sig;
-        }
-      }
-      if (sig != null) {
-        used.add(a);
-        sigs.add(sig);
-      }
-      if (i % 8 == 0) {
-        onProgress?.call(i + 1, images.length);
-        await Future<void>.delayed(Duration.zero);
+      final s = found[i];
+      if (s != null) {
+        used.add(images[i]);
+        sigs.add(s);
       }
     }
-    onProgress?.call(images.length, images.length);
 
     final groups = groupSimilar(
       sigs.map((s) => s.hash).toList(),
@@ -168,6 +209,12 @@ class Analyzer {
     }
     blurry.sort((a, b) => a.sharp.compareTo(b.sharp));
 
-    return ScanResult(clusters, blurry, used.length);
+    final docs = <AssetEntity>[];
+    for (var i = 0; i < used.length; i++) {
+      if (looksLikeDocument(sigs[i])) docs.add(used[i]);
+    }
+    final bursts = clusters.where(isBurst).toList();
+
+    return ScanResult(clusters, blurry, used.length, docs: docs, bursts: bursts);
   }
 }

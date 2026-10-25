@@ -17,7 +17,20 @@ int hamming(int a, int b) => popcount64(a ^ b);
 class ImageSig {
   final int hash;
   final double sharp;
-  const ImageSig(this.hash, this.sharp);
+
+  /// Fraction of pixels that are very bright (paper-like), 0..1.
+  final double bright;
+  const ImageSig(this.hash, this.sharp, [this.bright = 0]);
+}
+
+/// Fraction of pixels brighter than [level] (0..255).
+double brightFraction(Uint8List g, {int level = 185}) {
+  if (g.isEmpty) return 0;
+  var c = 0;
+  for (final v in g) {
+    if (v > level) c++;
+  }
+  return c / g.length;
 }
 
 Future<Uint8List?> _gray(Uint8List bytes, int w, int h) async {
@@ -81,5 +94,5 @@ Future<ImageSig?> signatureOf(Uint8List jpeg) async {
   final small = await _gray(jpeg, 9, 8);
   final mid = await _gray(jpeg, 96, 96);
   if (small == null || mid == null) return null;
-  return ImageSig(dHashFromGray(small), laplacianVariance(mid, 96));
+  return ImageSig(dHashFromGray(small), laplacianVariance(mid, 96), brightFraction(mid));
 }
