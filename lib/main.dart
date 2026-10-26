@@ -9,13 +9,16 @@ import 'providers/scan_provider.dart';
 import 'providers/session_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/vault_provider.dart';
+import 'services/auth_service.dart';
 import 'services/notification_service.dart';
+import 'screens/intro/new_password_screen.dart';
 import 'screens/intro/intro_flow.dart';
 import 'screens/shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService.instance.init();
+  await AuthService.init(); // no-op when built without SUPABASE_URL / SUPABASE_ANON_KEY
   runApp(const PhotoCleanerApp());
 }
 
@@ -66,6 +69,9 @@ class _FlowGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stage = context.select<SessionProvider, FlowStage>((s) => s.stage);
+    final recovery = context.select<SessionProvider, bool>((s) => s.recoveryPending);
+    // The user opened a "reset password" e-mail link.
+    if (recovery) return const NewPasswordScreen();
     switch (stage) {
       case FlowStage.loading:
         return Scaffold(backgroundColor: context.pal.bg);

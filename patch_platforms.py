@@ -173,3 +173,46 @@ for name in ("android/app/build.gradle.kts", "android/app/build.gradle"):
     else:
         print("minSdk unchanged in", name, "(check it is >= 24 manually)")
     break
+
+# ---------- Auth: internet, deep link for e-mail links / OAuth (photocleaner://login-callback) ----------
+if manifest.exists():
+    xml = manifest.read_text(encoding="utf-8")
+    changed = False
+    if "android.permission.INTERNET" not in xml:
+        # Release builds do not get INTERNET from the debug manifest.
+        xml = xml.replace(
+            "<application",
+            '<uses-permission android:name="android.permission.INTERNET"/>\n    <application',
+            1,
+        )
+        changed = True
+    if 'android:scheme="photocleaner"' not in xml:
+        block = (
+            '<meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>\n'
+            "            <intent-filter>\n"
+            '                <action android:name="android.intent.action.VIEW"/>\n'
+            '                <category android:name="android.intent.category.DEFAULT"/>\n'
+            '                <category android:name="android.intent.category.BROWSABLE"/>\n'
+            '                <data android:scheme="photocleaner" android:host="login-callback"/>\n'
+            "            </intent-filter>\n"
+            "        </activity>"
+        )
+        if "</activity>" in xml:
+            xml = xml.replace("</activity>", block, 1)
+            changed = True
+        else:
+            print("no </activity> found, add the deep-link intent-filter manually", file=sys.stderr)
+    if changed:
+        manifest.write_text(xml, encoding="utf-8")
+        print("added INTERNET permission / deep link intent-filter")
+
+if plist.exists():
+    with plist.open("rb") as f:
+        data = plistlib.load(f)
+    want = [{"CFBundleURLName": "photocleaner", "CFBundleURLSchemes": ["photocleaner"]}]
+    if data.get("CFBundleURLTypes") != want or data.get("FlutterDeepLinkingEnabled") is not False:
+        data["CFBundleURLTypes"] = want
+        data["FlutterDeepLinkingEnabled"] = False
+        with plist.open("wb") as f:
+            plistlib.dump(data, f)
+        print("added URL scheme photocleaner:// to Info.plist")

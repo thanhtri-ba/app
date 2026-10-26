@@ -9,6 +9,7 @@ import '../providers/settings_provider.dart';
 import '../services/notification_service.dart';
 import '../widgets/common.dart';
 import '../widgets/motion.dart';
+import 'account_screen.dart';
 import 'vault_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -104,7 +105,7 @@ class SettingsScreen extends StatelessWidget {
                                   fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
                           Text(
                               user?.email ??
-                                  context.tr('Sign in to sync your settings', 'Đăng nhập để đồng bộ cài đặt'),
+                                  context.tr('Sign in to use one account everywhere', 'Đăng nhập để dùng một tài khoản mọi nơi'),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(fontSize: 14, color: pal.sec)),
@@ -123,15 +124,22 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                user == null
-                    ? PillButton(
-                        label: context.tr('Sign in', 'Đăng nhập'),
-                        filled: false,
-                        onTap: session.openAuth)
-                    : PillButton(
-                        label: context.tr('Log out', 'Đăng xuất'),
-                        filled: false,
-                        onTap: session.signOut),
+                if (user == null)
+                  PillButton(
+                      label: context.tr('Sign in', 'Đăng nhập'),
+                      filled: false,
+                      onTap: session.openAuth)
+                else ...[
+                  PillButton(
+                      label: context.tr('Manage account', 'Quản lý tài khoản'),
+                      filled: false,
+                      onTap: () => Navigator.of(context).push(softRoute<void>(const AccountScreen()))),
+                  const SizedBox(height: 10),
+                  PillButton(
+                      label: context.tr('Log out', 'Đăng xuất'),
+                      filled: false,
+                      onTap: session.signOut),
+                ],
               ],
             ),
           ),

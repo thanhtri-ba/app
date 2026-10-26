@@ -127,11 +127,8 @@ class _VideoCompressScreenState extends State<VideoCompressScreen> {
           _fail++;
           continue;
         }
-        final saved = await PhotoManager.editor.saveVideo(out, title: '$name.mp4');
-        if (saved == null) {
-          _fail++;
-          continue;
-        }
+        // Throws on failure (caught below), so no null check is needed.
+        await PhotoManager.editor.saveVideo(out, title: '$name.mp4');
         doneAssets.add(a);
         oldTotal += r.originalSize;
         newTotal += r.compressedSize;

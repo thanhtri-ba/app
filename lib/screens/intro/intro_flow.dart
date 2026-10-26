@@ -106,6 +106,25 @@ BoxDecoration _photoBox(int i, double radius, {Border? border, double blur = 30,
   );
 }
 
+/// Centres [child] vertically, and lets it scroll when the screen is too short to fit it.
+class _CenterScroll extends StatelessWidget {
+  final Widget child;
+  const _CenterScroll({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: box.maxHeight),
+          child: Center(child: child),
+        ),
+      ),
+    );
+  }
+}
+
 class _Splash extends StatelessWidget {
   const _Splash({super.key});
 
@@ -118,8 +137,9 @@ class _Splash extends StatelessWidget {
         child: Column(
           children: [
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: _CenterScroll(
+                child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   const Floaty(angle: -4, child: AppMark(size: 112, radius: 30)),
                   const SizedBox(height: 28),
@@ -137,6 +157,7 @@ class _Splash extends StatelessWidget {
                     ),
                   ),
                 ],
+                ),
               ),
             ),
             PillButton(
@@ -202,15 +223,22 @@ class _OnboardingState extends State<_Onboarding> {
             ),
             Expanded(
               child: Center(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 350),
-                  child: KeyedSubtree(key: ValueKey(_i), child: _illustration(_i)),
+                // Scales the picture down on short screens instead of overflowing.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 350),
+                    child: KeyedSubtree(key: ValueKey(_i), child: _illustration(_i)),
+                  ),
                 ),
               ),
             ),
-            SizedBox(
-              height: 118,
+            // A minimum (not a fixed) height: long Vietnamese text grows the block, short text
+            // keeps the layout from jumping between pages.
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 150),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(titles[_i],
                       textAlign: TextAlign.center,
@@ -461,8 +489,9 @@ class _PermissionIntro extends StatelessWidget {
         child: Column(
           children: [
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: _CenterScroll(
+                child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
                     width: 96,
@@ -508,6 +537,7 @@ class _PermissionIntro extends StatelessWidget {
                     ),
                   ),
                 ],
+                ),
               ),
             ),
             PillButton(

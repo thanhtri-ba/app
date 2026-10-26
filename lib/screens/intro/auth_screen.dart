@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show OAuthProvider;
 
+import '../../core/auth_rules.dart';
 import '../../core/i18n.dart';
 import '../../core/theme.dart';
 import '../../providers/session_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../widgets/common.dart';
 import 'logo.dart';
 
-final RegExp _emailRe = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-
-/// Sign in / sign up. There is no server: this only creates a local profile.
+/// Sign in / sign up with e-mail + password or Google / Apple (Supabase Auth).
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -24,6 +25,8 @@ class _AuthScreenState extends State<AuthScreen> {
   final _pass = TextEditingController();
   bool _show = false;
   String? _errName, _errEmail, _errPass;
+  String? _formError; // error from the server
+  String? _info; // e.g. "check your inbox"
 
   @override
   void dispose() {
@@ -35,31 +38,51 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool get _signup => _mode == 1;
 
-  void _submit() {
-    final vi = context.read<SessionProvider>(); // for navigation only
+  Future<void> _submit() async {
+    final session = context.read<SessionProvider>();
+    final tr = context.trr;
+    final vi = context.read<SettingsProvider>().isVi;
+    final issue = passwordIssue(_pass.text);
     setState(() {
-      _errName = _signup && _name.text.trim().isEmpty
-          ? context.trr('Enter your name', 'Nhập tên của bạn')
-          : null;
-      _errEmail = _emailRe.hasMatch(_email.text.trim())
-          ? null
-          : context.trr('Enter a valid email', 'Email không hợp lệ');
-      _errPass = _pass.text.length >= 6
-          ? null
-          : context.trr('At least 6 characters', 'Tối thiểu 6 ký tự');
+      _formError = null;
+      _info = null;
+      _errName = _signup && _name.text.trim().isEmpty ? tr('Enter your name', 'Nhập tên của bạn') : null;
+      _errEmail = isValidEmail(_email.text) ? null : tr('Enter a valid email', 'Email không hợp lệ');
+      // The strength policy only applies when creating a password; old accounts just need one.
+      _errPass = _signup
+          ? (issue == null ? null : passwordIssueText(issue, vi: vi))
+          : (_pass.text.isEmpty ? tr('Enter your password', 'Nhập mật khẩu') : null);
     });
     if (_errName != null || _errEmail != null || _errPass != null) return;
-    final email = _email.text.trim();
-    final name = _signup ? _name.text.trim() : email.split('@').first;
     FocusScope.of(context).unfocus();
-    vi.signIn(name, email);
+    final email = _email.text.trim();
+    final r = _signup
+        ? await session.signUpEmail(_name.text, email, _pass.text)
+        : await session.signInEmail(email, _pass.text);
+    if (!mounted) return;
+    if (!r.ok) {
+      setState(() => _formError = friendlyAuthError(r.error ?? '', vi: vi));
+    } else if (r.needsConfirmation) {
+      setState(() {
+        _mode = 0;
+        _pass.clear();
+        _info = tr('We sent a confirmation link to $email. Open it, then log in.',
+            'Đã gửi liên kết xác nhận tới $email. Hãy mở nó rồi đăng nhập.');
+      });
+    }
   }
 
-  void _social(String provider) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(context.trr('$provider sign-in needs a backend and is not available in this build.',
-          'Đăng nhập $provider cần backend nên chưa có trong bản này.')),
-    ));
+  Future<void> _social(OAuthProvider provider) async {
+    final session = context.read<SessionProvider>();
+    final vi = context.read<SettingsProvider>().isVi;
+    setState(() {
+      _formError = null;
+      _info = null;
+    });
+    // On success the browser sheet opens and the session arrives through the auth listener.
+    final r = await session.signInWith(provider);
+    if (!mounted) return;
+    if (!r.ok) setState(() => _formError = friendlyAuthError(r.error ?? '', vi: vi));
   }
 
   void _forgot() {
@@ -75,7 +98,8 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final pal = context.pal;
-    final session = context.read<SessionProvider>();
+    final session = context.watch<SessionProvider>();
+    final canSubmit = session.authAvailable && !session.busy;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -107,12 +131,20 @@ class _AuthScreenState extends State<AuthScreen> {
             const SizedBox(height: 6),
             Text(
               _signup
-                  ? context.tr('Sync your settings and unlock Pro features.',
-                      'Đồng bộ cài đặt và mở khoá tính năng Pro.')
-                  : context.tr('Log in to sync your settings and Pro plan.',
-                      'Đăng nhập để đồng bộ cài đặt và gói Pro.'),
+                  ? context.tr('Use one account on all your devices.',
+                      'Dùng chung một tài khoản trên mọi thiết bị.')
+                  : context.tr('Log in with your account.', 'Đăng nhập bằng tài khoản của bạn.'),
               style: TextStyle(fontSize: 16, height: 22 / 16, color: pal.sec),
             ),
+            if (!session.authAvailable) ...[
+              const SizedBox(height: 14),
+              _Notice(
+                error: true,
+                text: context.tr(
+                    'Sign-in server is not configured in this build. You can still continue as a guest.',
+                    'Bản này chưa kết nối máy chủ đăng nhập. Bạn vẫn có thể tiếp tục với tư cách khách.'),
+              ),
+            ],
             const SizedBox(height: 20),
             SegControl(
               labels: [context.tr('Log in', 'Đăng nhập'), context.tr('Sign up', 'Đăng ký')],
@@ -120,6 +152,8 @@ class _AuthScreenState extends State<AuthScreen> {
               onChanged: (i) => setState(() {
                 _mode = i;
                 _errName = _errEmail = _errPass = null;
+                _formError = null;
+                _info = null;
               }),
             ),
             const SizedBox(height: 18),
@@ -149,7 +183,9 @@ class _AuthScreenState extends State<AuthScreen> {
             _Field(
               label: context.tr('Password', 'Mật khẩu'),
               controller: _pass,
-              hint: context.tr('At least 6 characters', 'Tối thiểu 6 ký tự'),
+              hint: _signup
+                  ? context.tr('8+ characters, letters and digits', 'Từ 8 ký tự, gồm chữ và số')
+                  : context.tr('Your password', 'Mật khẩu của bạn'),
               error: _errPass,
               obscure: !_show,
               action: TextInputAction.done,
@@ -184,10 +220,20 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
               ),
+            if (_formError != null) ...[
+              const SizedBox(height: 12),
+              _Notice(error: true, text: _formError!),
+            ],
+            if (_info != null) ...[
+              const SizedBox(height: 12),
+              _Notice(error: false, text: _info!),
+            ],
             const SizedBox(height: 16),
             PillButton(
-              label: _signup ? context.tr('Create account', 'Tạo tài khoản') : context.tr('Log in', 'Đăng nhập'),
-              onTap: _submit,
+              label: session.busy
+                  ? context.tr('Please wait…', 'Vui lòng đợi…')
+                  : (_signup ? context.tr('Create account', 'Tạo tài khoản') : context.tr('Log in', 'Đăng nhập')),
+              onTap: canSubmit ? _submit : null,
             ),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 18),
@@ -207,11 +253,17 @@ class _AuthScreenState extends State<AuthScreen> {
               children: [
                 Expanded(
                   child: PillButton(
-                      label: 'Apple', icon: Icons.apple, filled: false, onTap: () => _social('Apple')),
+                      label: 'Apple',
+                      icon: Icons.apple,
+                      filled: false,
+                      onTap: canSubmit ? () => _social(OAuthProvider.apple) : null),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: PillButton(label: 'Google', filled: false, onTap: () => _social('Google')),
+                  child: PillButton(
+                      label: 'Google',
+                      filled: false,
+                      onTap: canSubmit ? () => _social(OAuthProvider.google) : null),
                 ),
               ],
             ),
@@ -236,6 +288,34 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _Notice extends StatelessWidget {
+  final String text;
+  final bool error;
+  const _Notice({required this.text, required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = context.pal;
+    final c = error ? pal.dangerText : pal.ok;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: pal.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.withOpacity(0.6)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(error ? Icons.error_outline_rounded : Icons.mark_email_read_outlined, size: 20, color: c),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: TextStyle(fontSize: 14, height: 20 / 14, color: pal.text))),
+        ],
       ),
     );
   }
@@ -327,11 +407,32 @@ class _ForgotSheetState extends State<_ForgotSheet> {
   late final TextEditingController _c = TextEditingController(text: widget.initialEmail);
   String? _err;
   bool _sent = false;
+  bool _busy = false;
 
   @override
   void dispose() {
     _c.dispose();
     super.dispose();
+  }
+
+  Future<void> _send() async {
+    final session = context.read<SessionProvider>();
+    final vi = context.read<SettingsProvider>().isVi;
+    if (!isValidEmail(_c.text)) {
+      setState(() => _err = context.trr('Enter a valid email', 'Email không hợp lệ'));
+      return;
+    }
+    setState(() => _busy = true);
+    final r = await session.sendReset(_c.text);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (r.ok) {
+        _sent = true;
+      } else {
+        _err = friendlyAuthError(r.error ?? '', vi: vi);
+      }
+    });
   }
 
   @override
@@ -357,8 +458,8 @@ class _ForgotSheetState extends State<_ForgotSheet> {
           if (_sent) ...[
             Text(
               context.tr(
-                  'If an account exists for ${_c.text.trim()}, a reset link would be sent. (This build has no server, so no email is actually sent.)',
-                  'Nếu có tài khoản cho ${_c.text.trim()}, một liên kết đặt lại sẽ được gửi. (Bản này chưa có server nên không có email nào được gửi thật.)'),
+                  'If an account exists for ${_c.text.trim()}, we sent a reset link. Check your inbox (and spam).',
+                  'Nếu có tài khoản cho ${_c.text.trim()}, chúng tôi đã gửi liên kết đặt lại. Hãy kiểm tra hộp thư (kể cả thư rác).'),
               style: TextStyle(fontSize: 15, height: 21 / 15, color: pal.sec),
             ),
             const SizedBox(height: 20),
@@ -378,14 +479,8 @@ class _ForgotSheetState extends State<_ForgotSheet> {
             ),
             const SizedBox(height: 16),
             PillButton(
-              label: context.tr('Send link', 'Gửi liên kết'),
-              onTap: () {
-                if (!_emailRe.hasMatch(_c.text.trim())) {
-                  setState(() => _err = context.trr('Enter a valid email', 'Email không hợp lệ'));
-                  return;
-                }
-                setState(() => _sent = true);
-              },
+              label: _busy ? context.tr('Please wait…', 'Vui lòng đợi…') : context.tr('Send link', 'Gửi liên kết'),
+              onTap: _busy ? null : _send,
             ),
           ],
         ],

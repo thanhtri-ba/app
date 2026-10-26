@@ -1,6 +1,6 @@
 # Photo Cleaner — Kế hoạch kiểm thử chi tiết theo giai đoạn
 
-Phiên bản kiểm thử: build debug hiện tại · Thiết bị chính: Android SM A217F · Phụ: iOS (nếu có)
+Phiên bản kiểm thử: build debug hiện tại (giai đoạn 0–6) · Thiết bị chính: Android SM A217F · Phụ: iOS (nếu có)
 Người test: ____________ · Ngày: ____________ · Build/commit: ____________
 
 > **Trạng thái code:** toàn bộ 4 giai đoạn **chưa từng được biên dịch hay chạy** trước bản test này. Vì vậy thứ tự bắt buộc là: Giai đoạn 0 (build) → 0 (giao diện) → 1 → 2 → 3 → 4. Nếu build lỗi, dừng và gửi log, không test tiếp.
@@ -35,10 +35,10 @@ flutter build apk --debug
 
 | Mã | Lệnh | Kết quả mong đợi | Đạt |
 |---|---|---|---|
-| 0.A1 | `flutter pub get` | Không báo xung đột phiên bản. Gói mới: cryptography, flutter_secure_storage, local_auth, share_plus, cross_file, google_mlkit_text_recognition, light_compressor_v2, video_player | [ ] |
+| 0.A1 | `flutter pub get` | Không báo xung đột phiên bản. Gói mới: cryptography, flutter_secure_storage, local_auth, share_plus, cross_file, google_mlkit_text_recognition, light_compressor_v2, video_player, supabase_flutter (và dev: flutter_launcher_icons) | [ ] |
 | 0.A2 | `python3 patch_platforms.py` | In ra các dòng "patched…", "minSdk raised…" hoặc "already patched"; không có traceback | [ ] |
 | 0.A3 | `flutter analyze` | **0 error.** Ghi số warning/info: ____ | [ ] |
-| 0.A4 | `flutter test` | Pass toàn bộ 7 file (xem tổng hợp bên dưới). Ghi `All tests passed` hoặc dán test fail | [ ] |
+| 0.A4 | `flutter test` | Pass toàn bộ 8 file (xem tổng hợp bên dưới). Ghi `All tests passed` hoặc dán test fail | [ ] |
 | 0.A5 | `flutter build apk --debug` | `Built build/app/outputs/flutter-apk/app-debug.apk` | [ ] |
 | 0.A6 | (iOS) `cd ios && pod install --repo-update`, rồi `flutter build ios --no-codesign` | Thành công (iOS tối thiểu 15.5) | [ ] |
 
@@ -52,7 +52,8 @@ flutter build apk --debug
 | `sig_cache_test.dart` | 4 | cache đúng theo thời gian sửa, ghi/đọc không mất độ chính xác, bỏ dòng hỏng, dọn ảnh đã xoá |
 | `suggestions_test.dart` | 9 | các ngưỡng gợi ý, thứ tự, tối đa 3 |
 | `receipt_text_test.dart` | 7 | nhận hoá đơn tiếng Việt/Anh, loại ảnh ít chữ, khớp nguyên từ |
-| `video_test` → `video_view_test.dart` | 5 | lọc/sắp xếp video, quy tắc "nhỏ hơn ≥10% mới giữ" |
+| `video_view_test.dart` | 5 | lọc/sắp xếp video, quy tắc "nhỏ hơn ≥10% mới giữ" |
+| `auth_rules_test.dart` | 14 | kiểm tra email, quy tắc mật khẩu (≥8 ký tự, có chữ và số), dịch lỗi đăng nhập, không lộ lỗi nội bộ |
 
 ## 0.B Khởi động & điều hướng
 
@@ -445,6 +446,168 @@ Ghi kết quả thực tế trên cùng một video V2:
 
 ---
 
+# GIAI ĐOẠN 5 — Icon app mới
+
+**Mục tiêu:** icon ngoài màn hình chính là icon mới (khung ảnh + tia sáng, nền xanh lá), không còn icon Flutter mặc định; logo trong app khớp với icon.
+
+**Thay đổi cần test:** bộ ảnh trong `assets/icon/`, cấu hình `flutter_launcher_icons`, `AppMark` vẽ lại.
+
+**Chuẩn bị:**
+```bash
+flutter pub get
+dart run flutter_launcher_icons
+flutter run -d <ID_iPhone>      # chạy lại hẳn, không hot reload
+```
+Nếu iPhone vẫn hiện icon cũ: xoá app khỏi iPhone rồi cài lại (iOS giữ cache icon).
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 5.1 | `dart run flutter_launcher_icons` | Chạy xong không báo lỗi; tạo/ghi đè icon trong `android/` và `ios/` | [ ] |
+| 5.2 | (iOS) Nhìn icon trên màn hình chính | Icon xanh lá, khung ảnh trắng + tia sáng; **không** có viền trắng/đen thừa ở góc | [ ] |
+| 5.3 | (iOS) Tên dưới icon | "Photo Cleaner" (hoặc tên bạn đặt), không bị cắt xấu | [ ] |
+| 5.4 | (Android) Icon trên launcher | Hình khung ảnh nằm gọn giữa nền xanh, **không bị cắt** | [ ] |
+| 5.5 | (Android) Đổi dạng icon trong Cài đặt launcher: tròn / bo góc / giọt nước | Hình vẫn nguyên vẹn ở mọi dạng | [ ] |
+| 5.6 | (Android 13+) Bật "Themed icons" | Icon đổi sang bản một màu theo hình nền, vẫn nhận ra khung ảnh + tia sáng | [ ] |
+| 5.7 | Icon ở kích thước nhỏ (thư mục, tìm kiếm) | Vẫn nhận ra được | [ ] |
+| 5.8 | Mở app → màn chào và màn đăng nhập | Logo trong app **giống** icon (xanh lá, khung ảnh, tia sáng), không méo | [ ] |
+| 5.9 | Chế độ tối | Icon và logo vẫn rõ | [ ] |
+
+**Hạn chế đã biết:** chưa có icon chế độ tối / nhuộm màu riêng của iOS 18. Logo xanh lá khác tông xanh dương chủ đạo của giao diện (chủ ý, chưa đổi màu chủ đạo).
+
+**Tiêu chí hoàn thành GĐ5:** 5.1, 5.2 hoặc 5.4 đạt (tuỳ máy test) và 5.8 đạt.
+
+---
+
+# GIAI ĐOẠN 6 — Đăng nhập thật (Supabase)
+
+**Mục tiêu:** đăng ký/đăng nhập thật bằng email + mật khẩu và Google; xác nhận email; quên mật khẩu; đổi tên, đổi mật khẩu, đăng xuất, xoá tài khoản; vẫn dùng được ở chế độ khách.
+
+**Thay đổi cần test:** `AuthService`, `SessionProvider` (xác thực thật), màn đăng nhập, màn Tài khoản, màn đặt mật khẩu mới, deep link `photocleaner://login-callback/`, quyền INTERNET.
+
+**Chuẩn bị (bắt buộc):**
+1. Làm theo `docs/SUPABASE_SETUP.md` mục 1–5 (và mục 6 nếu test Google).
+2. Tạo `env.json` từ `env.example.json`, điền URL + anon key thật.
+3. `python3 patch_platforms.py`, `flutter pub get`.
+4. Chạy từ **terminal**: `flutter run -d <ID_iPhone> --dart-define-from-file=env.json` (bấm ▶ trong Xcode không truyền khoá).
+5. Có 2 email thật để test (một để đăng ký, một dự phòng) và quyền mở email **trên chính điện thoại test**.
+6. Lưu ý: gói miễn phí giới hạn rất ít email/giờ; nếu gặp "quá nhiều lần", đợi hoặc cấu hình SMTP riêng.
+
+## 6.A Cấu hình & chế độ khách
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.A1 | Chạy **không** có `--dart-define-from-file` | Màn đăng nhập hiện khung đỏ "Bản này chưa kết nối máy chủ đăng nhập…"; nút Đăng nhập/Tạo tài khoản/Google/Apple **bị mờ** | [ ] |
+| 6.A2 | Như 6.A1, bấm **Tiếp tục với tư cách khách** | Vào app dùng bình thường; Cài đặt hiện "Khách" + nút Đăng nhập | [ ] |
+| 6.A3 | Chạy **có** khoá | Không còn khung đỏ; các nút hoạt động | [ ] |
+| 6.A4 | Người dùng cũ (bản trước có "hồ sơ giả lập") nâng cấp lên | Hiện là Khách (hồ sơ giả bị xoá), không còn tên/email giả | [ ] |
+| 6.A5 | Dòng mô tả trên màn đăng nhập | Không còn nhắc "gói Pro" | [ ] |
+
+## 6.B Đăng ký
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.B1 | Tab **Đăng ký**, để trống tên, bấm Tạo tài khoản | Lỗi "Nhập tên của bạn" | [ ] |
+| 6.B2 | Email `abc`, `a@b` | Lỗi "Email không hợp lệ" | [ ] |
+| 6.B3 | Mật khẩu `abc12` | Lỗi "Tối thiểu 8 ký tự" | [ ] |
+| 6.B4 | Mật khẩu `abcdefgh` / `12345678` | Lỗi cần chữ số / cần chữ cái tương ứng | [ ] |
+| 6.B5 | Tên + email thật + mật khẩu `Matkhau123` → Tạo tài khoản | Nút đổi "Vui lòng đợi…" rồi chuyển về tab Đăng nhập, khung xanh "Đã gửi liên kết xác nhận tới …" | [ ] |
+| 6.B6 | Mở hộp thư (cả thư rác) | Có thư xác nhận từ Supabase (ghi thời gian đến: ____) | [ ] |
+| 6.B7 | Đăng nhập **trước khi** bấm link xác nhận | Lỗi "Email chưa được xác nhận…" | [ ] |
+| 6.B8 | Bấm link xác nhận **trên điện thoại** | Mở lại app (không báo lỗi route); ghi nhận: vào app luôn / quay về đăng nhập: ____ | [ ] |
+| 6.B9 | Sau 6.B8, đăng nhập bằng tài khoản đó | Thành công | [ ] |
+| 6.B10 | Đăng ký lại cùng email | Ghi nhận thông báo thực tế: ____ (Supabase có thể báo như thành công để không lộ email tồn tại) | [ ] |
+| 6.B11 | Trên Supabase → Authentication → Users | Thấy user mới; **không** thấy mật khẩu dạng chữ | [ ] |
+
+## 6.C Đăng nhập
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.C1 | Để trống mật khẩu → Đăng nhập | Lỗi "Nhập mật khẩu" | [ ] |
+| 6.C2 | Sai mật khẩu | Khung đỏ "Email hoặc mật khẩu không đúng." (không lộ lỗi kỹ thuật) | [ ] |
+| 6.C3 | Đúng email + mật khẩu (lần đầu cài) | Sang bước xin quyền ảnh, rồi vào app | [ ] |
+| 6.C4 | Cài đặt | Hiện đúng tên, email, chữ cái đầu; có nút **Quản lý tài khoản** và **Đăng xuất** | [ ] |
+| 6.C5 | Vuốt tắt app hẳn, mở lại | **Vẫn đăng nhập**, không phải nhập lại | [ ] |
+| 6.C6 | Bật chế độ máy bay → đăng nhập | Khung đỏ "Không có kết nối mạng…"; không crash, không treo | [ ] |
+| 6.C7 | Bấm nút đăng nhập liên tục nhiều lần | Chỉ gửi một lần (nút mờ "Vui lòng đợi…") | [ ] |
+| 6.C8 | Biểu tượng con mắt | Hiện/ẩn mật khẩu | [ ] |
+| 6.C9 | Thử sai mật khẩu 6–10 lần liên tiếp | Có lúc báo "quá nhiều lần…"; sau vài phút thử lại được | [ ] |
+| 6.C10 | Đăng nhập từ **Cài đặt → Đăng nhập** (đã qua onboarding) | Sau khi thành công về **thẳng app**, không bắt xem lại bước quyền ảnh | [ ] |
+
+## 6.D Quên mật khẩu
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.D1 | **Quên mật khẩu?** → email sai định dạng | Lỗi "Email không hợp lệ" | [ ] |
+| 6.D2 | Email đã đăng ký → Gửi liên kết | Hiện "Nếu có tài khoản…, chúng tôi đã gửi liên kết". Không còn dòng "chưa có server" | [ ] |
+| 6.D3 | Email **chưa** đăng ký | Vẫn hiện cùng thông báo (không lộ email nào có tài khoản) | [ ] |
+| 6.D4 | Mở thư, bấm link **trên điện thoại** | App mở ra màn **Đặt mật khẩu mới** | [ ] |
+| 6.D5 | Mật khẩu yếu / hai ô không khớp | Hiện lỗi tương ứng, không gửi | [ ] |
+| 6.D6 | Nhập mật khẩu mới hợp lệ → Lưu | Báo "Đã đổi mật khẩu", vào app | [ ] |
+| 6.D7 | Đăng xuất, đăng nhập bằng mật khẩu **cũ** | Bị từ chối | [ ] |
+| 6.D8 | Đăng nhập bằng mật khẩu **mới** | Thành công | [ ] |
+| 6.D9 | Mở link đặt lại, bấm **Để sau** | Vào app; ghi nhận: đang ở trạng thái đăng nhập: ____ (đây là hành vi của Supabase vì link tạo phiên tạm) | [ ] |
+| 6.D10 | Mở lại cùng link lần 2 (đã dùng/hết hạn) | Không crash; ghi nhận thông báo: ____ | [ ] |
+
+## 6.E Google / Apple
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.E1 | Bấm **Google** | Mở trang đăng nhập Google trong trình duyệt của app | [ ] |
+| 6.E2 | Chọn tài khoản Google | Trở lại app, đã đăng nhập, vào bước tiếp theo | [ ] |
+| 6.E3 | Cài đặt hiện tên + email lấy từ Google | Đúng tên/email | [ ] |
+| 6.E4 | Mở Google rồi **huỷ/đóng** trình duyệt | Quay lại màn đăng nhập, không crash, nút dùng lại được | [ ] |
+| 6.E5 | Chưa bật Google trong Supabase (nếu thử) | Khung đỏ "Cách đăng nhập này chưa được bật." | [ ] |
+| 6.E6 | Bấm **Apple** (tài khoản Apple miễn phí) | Khung đỏ "chưa được bật" hoặc lỗi dễ hiểu; **không crash** | [ ] |
+| 6.E7 | (Khi có gói Apple Developer) đăng nhập Apple | Thành công như Google | [ ] |
+
+## 6.F Quản lý tài khoản
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.F1 | Cài đặt → **Quản lý tài khoản** | Mở màn Tài khoản: email, ô tên, đổi mật khẩu, đăng xuất, vùng nguy hiểm | [ ] |
+| 6.F2 | Đổi tên → Lưu tên | Báo "Đã cập nhật tên"; Cài đặt đổi theo; tắt mở app vẫn giữ | [ ] |
+| 6.F3 | Xoá trống tên → Lưu | Lỗi "Nhập tên của bạn" | [ ] |
+| 6.F4 | Đổi mật khẩu: yếu / không khớp | Hiện lỗi, không gửi | [ ] |
+| 6.F5 | Đổi mật khẩu hợp lệ | Báo "Đã đổi mật khẩu"; đăng xuất rồi đăng nhập lại bằng mật khẩu mới được | [ ] |
+| 6.F6 | **Đăng xuất** (trong màn Tài khoản) | Về màn đăng nhập (không còn kẹt màn Tài khoản ở dưới); vào lại app bằng Khách thì Cài đặt hiện "Khách" | [ ] |
+| 6.F7 | Đăng xuất bằng nút ở Cài đặt | Về màn đăng nhập | [ ] |
+| 6.F8 | **Xoá tài khoản** → Huỷ | Không xoá gì | [ ] |
+| 6.F9 | Xoá tài khoản → **Xoá vĩnh viễn** | Về màn đăng nhập; trên Supabase → Users: user biến mất | [ ] |
+| 6.F10 | Đăng nhập lại bằng tài khoản vừa xoá | Bị từ chối | [ ] |
+| 6.F11 | Sau khi xoá tài khoản | Ảnh, Két, thống kê trên máy **vẫn còn nguyên** | [ ] |
+| 6.F12 | Xoá tài khoản khi **chưa chạy** file SQL (nếu thử) | Khung báo lỗi kèm gợi ý máy chủ thiếu hàm xoá; không mất gì | [ ] |
+
+## 6.G Bảo mật & phát hành
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.G1 | Tìm trong log `flutter run` chuỗi `eyJ` (token) hoặc mật khẩu bạn nhập | **Không** xuất hiện | [ ] |
+| 6.G2 | (Android) `adb shell run-as com.example.photo_cleaner cat shared_prefs/FlutterSharedPreferences.xml \| grep -i "access_token\|refresh_token"` | Không có token trong SharedPreferences (phiên nằm trong bộ lưu bảo mật) | [ ] |
+| 6.G3 | Kiểm tra `git status` | `env.json` **không** bị theo dõi (đã nằm trong `.gitignore`) | [ ] |
+| 6.G4 | (Android) `flutter build apk --release --dart-define-from-file=env.json`, cài và đăng nhập | Đăng nhập được (kiểm tra quyền INTERNET trong bản release) | [ ] |
+| 6.G5 | Chuyển vùng giữa Wi-Fi và 4G khi đang đăng nhập | Không crash; báo lỗi mạng dễ hiểu nếu mất kết nối | [ ] |
+| 6.G6 | Đăng nhập trên 2 máy cùng tài khoản | Cả hai hoạt động; đổi tên ở máy này thì máy kia thấy sau khi mở lại | [ ] |
+
+## 6.H Hồi quy với tính năng cũ
+
+| Mã | Thao tác | Kết quả mong đợi | Đạt |
+|---|---|---|---|
+| 6.H1 | Đăng nhập → quét, xoá ảnh, xem chúc mừng | Hoạt động như trước | [ ] |
+| 6.H2 | Đăng xuất → thống kê, huy hiệu, chuỗi ngày | **Không mất** (dữ liệu trên máy độc lập với tài khoản) | [ ] |
+| 6.H3 | Két riêng tư sau khi đăng nhập/đăng xuất | PIN và ảnh trong Két nguyên vẹn | [ ] |
+| 6.H4 | Chế độ khách dùng đầy đủ tính năng dọn dẹp | Không bị khoá tính năng nào | [ ] |
+
+**Hạn chế đã biết (không báo lỗi):**
+- Đăng nhập Apple cần gói Apple Developer trả phí để thử.
+- Email xác nhận/đặt lại phụ thuộc giới hạn SMTP của Supabase gói miễn phí.
+- Chưa đồng bộ thống kê qua tài khoản (giai đoạn 7); đăng nhập hiện chỉ xác định bạn là ai.
+- Màn "Điều khoản / Chính sách riêng tư" chưa có nội dung thật (cần trước khi lên App Store).
+- Link email phải mở trên chính thiết bị đã cài app.
+
+**Tiêu chí hoàn thành GĐ6:** 6.A1–6.A3, 6.B5–6.B9, 6.C2–6.C5, 6.D4–6.D8, 6.E1–6.E2 (Google), 6.F5–6.F6, 6.F9–6.F11, 6.G1 đạt.
+
+---
+
 # HỒI QUY CUỐI (chạy sau cùng, ~10 phút)
 
 | Mã | Thao tác | Kết quả mong đợi | Đạt |
@@ -469,11 +632,13 @@ Ghi kết quả thực tế trên cùng một video V2:
 | 2. Gamification | 7 + 6 + 4 + 6 + 3 + 4 = 30 | | | | |
 | 3. Dọn thông minh | 11 + 10 + 12 = 33 | | | | |
 | 4. Video | 6 + 6 + 8 + 3 + 11 + 3 = 37 | | | | |
+| 5. Icon | 9 | | | | |
+| 6. Đăng nhập | 5 + 11 + 10 + 10 + 7 + 12 + 6 + 4 = 65 | | | | |
 | Hồi quy | 8 | | | | |
 
 **Kết luận:** ☐ Có thể dùng · ☐ Cần sửa lỗi trước · ☐ Chưa dùng được
 
-**Ưu tiên nếu ít thời gian (≈30 phút):** 0.A3–0.A5 → 0.B3–0.B4 → 1.B1–1.B3, 1.F1–1.F2, 1.F6 → 2.A1–2.A2 → 3.A2–3.A3 → 4.C1–4.C6 → 4.E1.
+**Ưu tiên nếu ít thời gian (≈30 phút):** 0.A3–0.A5 → 0.B3–0.B4 → 1.B1–1.B3, 1.F1–1.F2, 1.F6 → 2.A1–2.A2 → 3.A2–3.A3 → 4.C1–4.C6 → 4.E1 → 5.1–5.2 → 6.A1, 6.B5–6.B9, 6.C2–6.C5.
 
 ---
 
